@@ -45,7 +45,6 @@
             this.tsPublabel = new System.Windows.Forms.ToolStripStatusLabel();
             this.tsl = new System.Windows.Forms.ToolStripStatusLabel();
             this.tsOnline = new System.Windows.Forms.ToolStripStatusLabel();
-            this.tsDevice = new System.Windows.Forms.ToolStripStatusLabel();
             ((System.ComponentModel.ISupportInitialize)(this.splitContainer1)).BeginInit();
             this.splitContainer1.Panel1.SuspendLayout();
             this.splitContainer1.Panel2.SuspendLayout();
@@ -205,8 +204,7 @@
             this.statusStrip1.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
             this.tsPublabel,
             this.tsl,
-            this.tsOnline,
-            this.tsDevice});
+            this.tsOnline});
             this.statusStrip1.Location = new System.Drawing.Point(0, 471);
             this.statusStrip1.Name = "statusStrip1";
             this.statusStrip1.Padding = new System.Windows.Forms.Padding(1, 0, 10, 0);
@@ -235,12 +233,6 @@
             this.tsOnline.Name = "tsOnline";
             this.tsOnline.Size = new System.Drawing.Size(40, 21);
             this.tsOnline.Text = "fffffff";
-            // 
-            // tsDevice
-            // 
-            this.tsDevice.Name = "tsDevice";
-            this.tsDevice.Size = new System.Drawing.Size(92, 21);
-            this.tsDevice.Text = "缓存设备数量：";
             // 
             // FrmMain
             // 
@@ -286,7 +278,6 @@
         private System.Windows.Forms.Button btnSetInterval;
         private System.Windows.Forms.ToolStripStatusLabel tsl;
         private System.Windows.Forms.ToolStripStatusLabel tsOnline;
-        private System.Windows.Forms.ToolStripStatusLabel tsDevice;
     }
 }
 

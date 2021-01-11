@@ -9,8 +9,8 @@ using System.Linq;
 using System.Runtime.Remoting.Messaging;
 using System.Threading;
 using System.Windows.Forms;
-using Common;
 using Dapper;
+using log4net;
 using Newtonsoft.Json;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
@@ -28,8 +28,8 @@ namespace MessagePump_Dapper
     public partial class FrmMain : Form
     {
         //ILog log;
-        private Dictionary<string, DateTime> DicNo;//缓存上条数据时间，用来控制设备上传数据的时间
-        Dictionary<string, DeviceViewModel> DicDevice;//缓存设备，系统加载时读取，新设备加入时自动添加
+        //private Dictionary<string, DateTime> DicNo;//缓存上条数据时间，用来控制设备上传数据的时间
+        //Dictionary<string, DeviceViewModel> DicDevice;//缓存设备，系统加载时读取，新设备加入时自动添加
         MqttClient mqtt;
         string uid;//mqtt标识
         int iReceive, iSend, iAlarm, iSendAlarm, iOther;//接收到的数据条数，已发送的历史数据，接收到的报警数据，已上传城的的报警数据，其它数据
@@ -38,6 +38,7 @@ namespace MessagePump_Dapper
         volatile bool bConnectServer = false;
 
         FrmMessage fm;
+        ILog AppLog;
 
         #region 处理分包数据
         private static readonly object Pagelocker = new object();
@@ -173,7 +174,7 @@ namespace MessagePump_Dapper
         public FrmMain()
         {
             InitializeComponent();
-            AppLog.SetLog(typeof(FrmMain));
+            AppLog = LogManager.GetLogger("FrmMain");
             ConnectionString = ConfigurationManager.ConnectionStrings["SqlConString"].ConnectionString;
             dicPage = new ConcurrentDictionary<string, CacheData>();//初始化分包数据
             dicOnLine = new ConcurrentDictionary<string, OnlineData>();//初始化在线设备数据
@@ -743,16 +744,8 @@ namespace MessagePump_Dapper
             statusStrip1.Invoke(new Action(() =>
             {
                 tsOnline.Text = $"现有{dicOnLine.Count}台设备在线";
-                //tsDevice.Text = $"现有{DicDevice.Count}台设备在设备缓存中";
             }));
         }
-        //private void SetDeviceCache()
-        //{
-        //    statusStrip1.Invoke(new Action(() =>
-        //    {
-        //        tsDevice.Text = $"现有{DicDevice.Count}台设备在设备缓存中";
-        //    }));
-        //}
 
         private void SetStatusTool(/*string message, string topic*/)
         {
