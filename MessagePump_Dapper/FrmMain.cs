@@ -1,4 +1,4 @@
-﻿#define Debug
+﻿//#define Debug
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -156,7 +156,7 @@ namespace MessagePump_Dapper
                     {
                         if (isOnline)//设备上线时添加数据，下线则不处理
                         {
-                            updateOrInsert = "insert into deviceonline (devicesn,deviceno,dt,token,State,DataContent,DataTitle) values(@devicesn,@deviceno,@dt,@token,@State,@dataContent,@title)";
+                            updateOrInsert = "insert into deviceonline (devicesn,deviceno,dt,groupid,State,DataContent,DataTitle) values(@devicesn,@deviceno,@dt,@token,@State,@dataContent,@title)";
                             var m = conn.Execute(updateOrInsert, new { devicesn = devicesn, deviceno = DeviceNo, dt = DateTime.Now, token = token, State = isOnline, dataContent = dataContent, title = title });
                         }
                     }
@@ -186,17 +186,10 @@ namespace MessagePump_Dapper
             //  txtAddress.Text = "183.62.237.211:18831";
             tsOnline.Text = "没有在线设备";
             //#endif
-            //DicNo = new Dictionary<string, DateTime>();
-            //DicDevice = new Dictionary<string, DeviceViewModel>();
             uid = Guid.NewGuid().ToString("N");
-            //AppLog.Info("测试日志");
-            //AppLog.Warn("警告日志");
-            //InitMqtt();
             InitListView();
-            //程序启动时要获取全部设备,缓存设备
-            // GetDevice();
             //测试地址
-            //txtAddress.Text = "183.62.237.211:18831";
+            txtAddress.Text = "183.62.237.211:18831";
             ActConnetct = MonitorConnect;
 
             #region 清理多包缓存
@@ -256,9 +249,6 @@ namespace MessagePump_Dapper
                                     dicOnLine.TryRemove(item.Key, out data);
                                     //更改设备在线状态
                                     HandleDeviceOnlineData(item.Key, false, data.Token, data.DeviceSn);
-
-                                    //从设备缓存中剔除出已掉线的设备(目的是更新设备缓存列表，处理设备no和sn不一致的问题)
-                                    //DicDevice.Remove(item.Key);
                                     SetOnlineData();
                                 }
                             }
@@ -271,53 +261,15 @@ namespace MessagePump_Dapper
             #endregion
 
         }
-        #region 旧版本删除
-        /*
-        //程序启动时把所有设备都加入到设备缓存中
-        private void GetDevice()
-        {
-            using (IDbConnection connection = new SqlConnection(ConnectionString))
-            {
-                string sql = "select deviceno,devicesn,token from device";
-                var query = connection.Query<DeviceViewModel>(sql);
-                foreach (var item in query)
-                {
-                    DicDevice.Add(item.DeviceNo, item);
-                }
-            }
-        }
-        //如果设备不在列表中把设备加入设备缓存中
-        private bool GetDeviceNo(string DeviceNo)
-        {
-            using (var conn = new SqlConnection(ConnectionString))
-            {
-                string strSql = "select deviceno,devicesn,token from device where deviceno=@deviceno";
-                var query = conn.Query<DeviceViewModel>(strSql, new { deviceno = DeviceNo }).FirstOrDefault();
-                if (query == null)
-                {
-                    return false;
-                }
-                else
-                {
-                    if (!DicDevice.ContainsKey(query.DeviceNo))
-                    {
-                        DicDevice.Add(query.DeviceNo, query);//把设备添加到列表中
-                    }
-                    return true;
-                }
-            }
-        }
-        */
-        #endregion
         private DeviceInfo GetDeviceInfo(string DeviceNo)
         {
             //DeviceInfo device = new DeviceInfo();
             using (var conn = new SqlConnection(ConnectionString))
             {
                 //老版本
-                string strSql = "select devicesn,token from device where deviceno=@deviceno";
+                //string strSql = "select devicesn,token from device where deviceno=@deviceno";
                 //新版本 
-                //string strSql = "select devicesn,groupid from device where deviceno=@deviceno";
+                string strSql = "select devicesn,groupid from device where deviceno=@deviceno";
                 var query = conn.Query<DeviceInfo>(strSql, new { deviceno = DeviceNo }).FirstOrDefault();
                 if (query == null)
                 {
@@ -341,22 +293,8 @@ namespace MessagePump_Dapper
                 //直接插入，数据库有约束，如果设备不存在，则不能加入
                 try
                 {
-                    string strSql = "insert into devicehisdata (dt,datacontent,datatitle,token,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn)";
+                    string strSql = "insert into devicehisdata (dt,datacontent,datatitle,groupid,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn)";
                     var query = conn.Execute(strSql, new { dt = DateTime.Now, datacontent = content, datatitle = title, token = token, devicesn = devicesn });
-                    ////更新设备在线时间
-                    //string sql = "select count(1) from deviceonline where devicesn=@devicesn";
-                    //var qu = conn.Query<int>(sql, new { devicesn = devicesn }).FirstOrDefault();
-                    //string updateOrInsert;
-                    //if (qu > 0)
-                    //{
-                    //    updateOrInsert = "update deviceonline set dt=@dt,datacontent=@datacontent where devicesn=@devicesn ";
-                    //    var num = conn.Execute(updateOrInsert, new { dt = DateTime.Now, datacontent = content, devicesn = devicesn });
-                    //}
-                    //else
-                    //{
-                    //    updateOrInsert = "insert into deviceonline (devicesn,deviceno,dt,datacontent,datatitle,token) values(@devicesn,@deviceno,@dt,@datacontent,@datatitle,@token)";
-                    //    var m = conn.Execute(updateOrInsert, new { devicesn = devicesn, deviceno = DeviceNo, dt = DateTime.Now, datacontent = content, datatitle = title, token = token });
-                    //}
                     iSend++;
                     SetStatusTool();
                 }
@@ -364,8 +302,6 @@ namespace MessagePump_Dapper
                 {
                     //写日志
                     AppLog.Error("添加历史数据失败，错误原因->" + ex.Message);
-                    DicDevice.Remove(DeviceNo);//移除不存在的设备
-                    DicNo.Remove(DeviceNo);
                 }
             }
 #endif
@@ -389,9 +325,8 @@ namespace MessagePump_Dapper
                         {
                             return;//存在未处理的报警
                         }
-
-                        sql = "insert into warn (code,token,dt,devicesn,deviceno,state) values(@code,@token,@dt,@devicesn,@deviceno,@state)";
-                        var r = conn.Execute(sql, new { code = item.Key, token = token, dt = DateTime.Now, devicesn = devicesn, deviceno = deviceno, state = 0 });
+                        sql = "insert into warn (code,groupid,dt,devicesn,deviceno,state) values(@code,@groupid,@dt,@devicesn,@deviceno,@state)";
+                        var r = conn.Execute(sql, new { code = item.Key, groupid = token, dt = DateTime.Now, devicesn = devicesn, deviceno = deviceno, state = 0 });
                         iSendAlarm++;
                         SetStatusTool();
                     }
@@ -702,9 +637,6 @@ namespace MessagePump_Dapper
                                 //设备下线
                                 dicOnLine.TryRemove(deviceNo, out data);
                                 HandleDeviceOnlineData(deviceNo, false, data.Token, data.DeviceSn);
-
-                                //从设备缓存中剔除出已掉线的设备(目的是更新设备缓存列表，处理设备no和sn不一致的问题)
-                                //DicDevice.Remove(deviceNo);
                                 SetOnlineData();
                             }
                         }
