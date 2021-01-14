@@ -48,7 +48,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <PropertyGroup>
-    <ApplicationIcon>Resources\monitor.ico</ApplicationIcon>
+    <ApplicationIcon>监控.ico</ApplicationIcon>
   </PropertyGroup>
   <PropertyGroup>
     <SignAssembly>false</SignAssembly>
@@ -146,6 +146,10 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\monitor.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="监控.ico" />
+    <Content Include="监控蓝色.ico" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>
