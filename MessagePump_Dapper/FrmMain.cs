@@ -203,6 +203,7 @@ namespace MessagePump_Dapper
                                 {
                                     CacheData cd;
                                     dicPage.TryRemove(item.Key, out cd);
+                                    AppLog.Warn($"清楚设备编号为{cd.DeviceNo}的缓存包，包内容为->{cd.Data}");
                                     this.statusStrip1.Invoke(new MethodInvoker(() =>
                                     {
                                         tsl.Text = $"清理一条缓存，还有{dicPage.Count}条缓存";
