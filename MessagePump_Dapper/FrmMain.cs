@@ -189,7 +189,7 @@ namespace MessagePump_Dapper
             uid = Guid.NewGuid().ToString("N");
             InitListView();
             //测试地址
-           // txtAddress.Text = "183.62.237.211:18831";
+            // txtAddress.Text = "183.62.237.211:18831";
             ActConnetct = MonitorConnect;
 
             #region 清理多包缓存
@@ -209,7 +209,7 @@ namespace MessagePump_Dapper
                                 {
                                     CacheData cd;
                                     dicPage.TryRemove(item.Key, out cd);
-                                    AppLog.Warn($"清除设备编号为{cd.DeviceNo}的缓存，缓存数据为{cd.Data}");
+                                    AppLog.Warn($"清除设备编号为{cd.DeviceNo}的缓存包，包内容为->{cd.ToString()}");
                                     this.statusStrip1.Invoke(new MethodInvoker(() =>
                                     {
                                         tsl.Text = $"清理一条缓存，还有{dicPage.Count}条缓存";
@@ -274,7 +274,7 @@ namespace MessagePump_Dapper
                 var query = conn.Query<DeviceInfo>(strSql, new { deviceno = DeviceNo }).FirstOrDefault();
                 if (query == null)
                 {
-                  //  AppLog.Error($"设备为{DeviceNo}的设备不存在");
+                    //  AppLog.Error($"设备为{DeviceNo}的设备不存在");
                     query = new DeviceInfo { IsExist = false };
                 }
                 else
@@ -812,6 +812,10 @@ namespace MessagePump_Dapper
         public string Action { get; set; }//包Action
         public string DeviceNo { get; set; }//设备编号
         public int Sequence { get; set; }//包的序号
+        public override string ToString()
+        {
+            return string.Join(",", Data);//把数据列表转换为字符串
+        }
     }
     public class SData
     {
