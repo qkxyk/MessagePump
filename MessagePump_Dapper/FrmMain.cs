@@ -326,8 +326,8 @@ namespace MessagePump_Dapper
                         {
                             return;//存在未处理的报警
                         }
-                        sql = "insert into warn (code,groupid,dt,devicesn,deviceno,state) values(@code,@groupid,@dt,@devicesn,@deviceno,@state)";
-                        var r = conn.Execute(sql, new { code = item.Key, groupid = token, dt = DateTime.Now, devicesn = devicesn, deviceno = deviceno, state = 0 });
+                        sql = "insert into warn (code,dt,devicesn,deviceno,state) values(@code,@dt,@devicesn,@deviceno,@state)";
+                        var r = conn.Execute(sql, new { code = item.Key, dt = DateTime.Now, devicesn = devicesn, deviceno = deviceno, state = 0 });
                         iSendAlarm++;
                         SetStatusTool();
                     }
