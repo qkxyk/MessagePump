@@ -302,7 +302,8 @@ namespace MessagePump_Dapper
                 catch (Exception ex)
                 {
                     //写日志
-                    AppLog.Error("添加历史数据失败，错误原因->" + ex.Message);
+                    //AppLog.Error("添加历史数据失败，错误原因->" + ex.Message);
+                    AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},groupid:{token}");
                 }
             }
 #endif
@@ -667,7 +668,8 @@ namespace MessagePump_Dapper
             }
             catch (Exception ex)
             {
-                AppLog.Error("数据解析错误:->" + ex.Message + "错误主题为:" + topic);
+                //AppLog.Error("数据解析错误:->" + ex.Message + "错误主题为:" + topic);
+                AppLog.Error($"数据解析错误:->{ ex.Message}: 错误主题为:{topic}:错误消息为=>{message}");
             }
 
         }
