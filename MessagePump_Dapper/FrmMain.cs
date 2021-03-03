@@ -827,6 +827,10 @@ namespace MessagePump_Dapper
     {
         public int Num { get; set; }//包号
         public string Message { get; set; }
+        public override string ToString()
+        {
+            return $"当前包号为{Num}:{Message};";
+        }
     }
     #endregion
     #region 设备在线数据
