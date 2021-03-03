@@ -337,7 +337,7 @@ namespace MessagePump_Dapper
                 catch (Exception ex)
                 {
                     //写日志
-                    AppLog.Error("添加历史数据失败，错误原因->" + ex.Message);
+                    AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},token:{token}");
                 }
             }
 #endif
@@ -703,7 +703,7 @@ namespace MessagePump_Dapper
             }
             catch (Exception ex)
             {
-                AppLog.Error("数据解析错误:->" + ex.Message + "错误主题为:" + topic);
+                AppLog.Error($"数据解析错误:->{ ex.Message}: 错误主题为:{topic}:错误消息为=>{message}");
             }
 
         }
@@ -863,6 +863,10 @@ namespace MessagePump_Dapper
     {
         public int Num { get; set; }//包号
         public string Message { get; set; }
+        public override string ToString()
+        {
+            return $"当前包为{Num}:{Message};";
+        }
     }
     #endregion
     #region 设备在线数据
