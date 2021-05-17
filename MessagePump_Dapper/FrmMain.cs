@@ -836,7 +836,12 @@ namespace MessagePump_Dapper
             }
 
         }
+
+        #region 分离历史数据
+        
+        #endregion
     }
+
     #region 处理分包数据包所用数据
     public class CacheData
     {
