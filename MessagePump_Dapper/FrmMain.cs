@@ -433,7 +433,7 @@ namespace MessagePump_Dapper
 
                 switch (topics[2].ToLower())
                 {
-                    case "DevicePub"://处理设备上报数据
+                    //case "DevicePub"://处理设备上报数据
                     case "devicepub"://处理设备上报数据
                         Dictionary<string, object> dic = AnalyData(message);
                         #region 处理设备上报数据
@@ -643,6 +643,19 @@ namespace MessagePump_Dapper
                             }
                         }
                         break;
+                    case "online":
+                        if (!dicOnLine.ContainsKey(deviceNo))
+                        {
+                            lock (OnlineLocker)
+                            {
+                                //设备上线
+                                //HandleDeviceOnlineData(deviceNo, false, data.Token, data.DeviceSn);
+                                //SetOnlineData();
+                                HandleDeviceOnlineMessage(deviceNo, 0, message, topic);
+                            }
+                        }
+                        break;
+                        
                     default://其它数据不处理
                         break;
                 }
@@ -673,6 +686,42 @@ namespace MessagePump_Dapper
             }
 
         }
+        /// <summary>
+        /// 处理设备上线
+        /// </summary>
+        /// <param name="deviceNo">设备编号</param>
+        /// <param name="will">是否有遗言，1代表有遗言，0代表没有遗言</param>
+        /// <param name="message">设备发送的消息</param>
+        /// <param name="topic">主题</param>
+        public void HandleDeviceOnlineMessage(string deviceNo,int will,string message,string topic)
+        {
+            var device = GetDeviceInfo(deviceNo);
+            if (!device.IsExist)
+            {
+                //设备不存在，把设备的数据打印到info中
+                //AppLog.Info($"设备为{deviceNo}的设备不存在,本次收到的数据为{message}");
+                return;
+            }
+            else
+            {
+
+                dicOnLine.TryAdd(deviceNo, new OnlineData
+                {
+                    Dt = DateTime.Now,
+                    IsWill = will == 0 ? false : true,
+                    DeviceSn = device.DeviceSn,
+                    DeviceNo = deviceNo,
+                    Token = device.GroupId,
+                    SendTime = DateTime.Now //设备在缓存中不存在需要设置发送时间
+                });
+            }
+            //发送设备上线数据
+            SetOnlineData();
+            //处理设备上线
+            HandleDeviceOnlineData(deviceNo, true, device.GroupId, device.DeviceSn, message, topic);
+            SetStatusTool();
+        }
+
 
         private void SetOnlineData()
         {
