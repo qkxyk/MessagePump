@@ -251,6 +251,7 @@ namespace MessagePump_Dapper
                                     //更改设备在线状态
                                     HandleDeviceOnlineData(item.Key, false, data.Token, data.DeviceSn);
                                     SetOnlineData();
+                                    AppLog.Info($"设备{item.Key}被强制下线，遗言状态为:{item.Value.IsWill},设备数据为{item.Value.DeviceNo}");
                                 }
                             }
                         }
@@ -640,6 +641,7 @@ namespace MessagePump_Dapper
                                 dicOnLine.TryRemove(deviceNo, out data);
                                 HandleDeviceOnlineData(deviceNo, false, data.Token, data.DeviceSn);
                                 SetOnlineData();
+                                AppLog.Info($"设备{deviceNo}收到离线消息:{message}离线");
                             }
                         }
                         break;
