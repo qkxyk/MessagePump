@@ -244,7 +244,7 @@ namespace MessagePump_Dapper
                             foreach (var item in dicOnLine.Where(a => a.Value.IsWill == false))//只处理没有遗言的设备
                             {
                                 TimeSpan ts = DateTime.Now - item.Value.Dt;
-                                if (ts.TotalMinutes > 20)//如果20分钟没有设备上传数据，则判定改设备下线
+                                if (ts.TotalMinutes > 25)//如果25分钟没有设备上传数据，则判定改设备下线
                                 {
                                     OnlineData data;
                                     dicOnLine.TryRemove(item.Key, out data);
@@ -288,8 +288,11 @@ namespace MessagePump_Dapper
         private void AddHisData(string content, string token, string title, string devicesn, string DeviceNo)
         {
 #if Debug
+            //AppLog.Info($"收到设备序列号为:{devicesn}->{DeviceNo}的设备数据{content}");
             return;
 #else
+
+            //AppLog.Info($"收到设备序列号为:{devicesn}->{DeviceNo}的设备数据{content}");
             using (IDbConnection conn = new SqlConnection(ConnectionString))
             {
                 //直接插入，数据库有约束，如果设备不存在，则不能加入
@@ -309,7 +312,7 @@ namespace MessagePump_Dapper
             }
 #endif
         }
-        private void AddWarnData(string message, string deviceno, string token, string devicesn)
+        private void AddWarnData(string message, string deviceno, string token, string devicesn, string topic)
         {
 #if Debug
             return;
@@ -318,7 +321,7 @@ namespace MessagePump_Dapper
             {
                 try
                 {
-                    Dictionary<string, object> dic = AnalyData(message);
+                    Dictionary<string, object> dic = AnalyData(message, topic);
                     foreach (var item in dic)
                     {
                         //先检查是否存在相同未处理的报警
@@ -431,12 +434,15 @@ namespace MessagePump_Dapper
             try
             {
                 string deviceNo = topics[1];
-
                 switch (topics[2].ToLower())
                 {
                     //case "DevicePub"://处理设备上报数据
                     case "devicepub"://处理设备上报数据
-                        Dictionary<string, object> dic = AnalyData(message);
+                        Dictionary<string, object> dic = AnalyData(message, topic);
+                        if (dic == null)//数据解析出错
+                        {
+                            return;
+                        }
                         #region 处理设备上报数据
                         if (!dic.ContainsKey("action"))   //数据包格式不正确
                         {
@@ -447,14 +453,14 @@ namespace MessagePump_Dapper
                         if (dic["action"].ToString().ToLower() == "timing_upload")//设备正常上报数据
                         {
                             //判断设备上传的数据是否有遗言
-                            int will = dic.ContainsKey("will") == false ? 0 : int.Parse(dic["will"].ToString());//设备上传的数据是否有遗言
+                            int will = 0;// = dic.ContainsKey("will") == false ? 0 : int.Parse(dic["will"].ToString());//设备上传的数据是否有遗言
                             //判断是否有分包数据
                             int totalpage = dic.ContainsKey("totalpage") == false ? 0 : int.Parse(dic["totalpage"].ToString());//包的序列号，防止不同的包混到一起
                             if (totalpage > 0)
                             {
                                 int seq = dic.ContainsKey("seq") == false ? 0 : int.Parse(dic["seq"].ToString());//包的序列号，防止不同的包混到一起
                                 string key = deviceNo + seq.ToString();//存到缓存的标示
-                                bool isComplete = HandleMessage(dic);
+                                bool isComplete = HandleMessage(dic);//合并包
                                 if (isComplete)
                                 {
                                     CacheData cd;
@@ -601,7 +607,7 @@ namespace MessagePump_Dapper
                             iAlarm++;
                             SetStatusTool();
                             string Mess = dic["error"].ToString();
-                            AddWarnData(Mess, deviceNo, dicOnLine[deviceNo].Token, dicOnLine[deviceNo].DeviceSn);
+                            AddWarnData(Mess, deviceNo, dicOnLine[deviceNo].Token, dicOnLine[deviceNo].DeviceSn, topic);
                         }
                         else
                         {
@@ -657,7 +663,7 @@ namespace MessagePump_Dapper
                             }
                         }
                         break;
-                        
+
                     default://其它数据不处理
                         break;
                 }
@@ -695,7 +701,7 @@ namespace MessagePump_Dapper
         /// <param name="will">是否有遗言，1代表有遗言，0代表没有遗言</param>
         /// <param name="message">设备发送的消息</param>
         /// <param name="topic">主题</param>
-        public void HandleDeviceOnlineMessage(string deviceNo,int will,string message,string topic)
+        public void HandleDeviceOnlineMessage(string deviceNo, int will, string message, string topic)
         {
             var device = GetDeviceInfo(deviceNo);
             if (!device.IsExist)
@@ -807,7 +813,7 @@ namespace MessagePump_Dapper
             lvMessage.Items.Clear();
         }
 
-        public Dictionary<string, object> AnalyData(string strMessage)
+        public Dictionary<string, object> AnalyData(string strMessage, string topic)
         {
             try
             {
@@ -816,8 +822,9 @@ namespace MessagePump_Dapper
             }
             catch (Exception ex)
             {
-                //AppLog.Error("数据解析错误:->" + ex.Message + "错误数据为:" + strMessage);
-                throw new Exception(ex.Message + strMessage);
+                //AppLog.Error($"数据解析错误:->" + ex.Message + "错误数据为:" + strMessage);
+                AppLog.Error($"数据解析错误：主题为{topic},错误数据为{strMessage},错误原因:{ex.Message}");
+                return null;
             }
         }
 
