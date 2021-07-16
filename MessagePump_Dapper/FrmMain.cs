@@ -1,4 +1,4 @@
-﻿#define Debug
+﻿//#define Debug
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -130,6 +130,7 @@ namespace MessagePump_Dapper
 #if Debug
             return;
 #else
+            
             using (IDbConnection conn = new SqlConnection(ConnectionString))
             {
                 //直接插入，数据库有约束，如果设备不存在，则不能加入
@@ -174,7 +175,7 @@ namespace MessagePump_Dapper
         {
             InitializeComponent();
             AppLog = LogManager.GetLogger("FrmMain");
-            ConnectionString = ConfigurationManager.ConnectionStrings["sqlDevice"].ConnectionString;
+            ConnectionString = ConfigurationManager.ConnectionStrings["SqlConString"].ConnectionString;
             MySqlConnectionString = ConfigurationManager.ConnectionStrings["mysqldb"].ConnectionString;
             dicPage = new ConcurrentDictionary<string, CacheData>();//初始化分包数据
             dicOnLine = new ConcurrentDictionary<string, OnlineData>();//初始化在线设备数据
@@ -261,6 +262,7 @@ namespace MessagePump_Dapper
             thOnLine.Start();
             #endregion
 
+            CheckMysqlDataBase();
         }
         #region 旧版本删除
         /*
@@ -300,6 +302,37 @@ namespace MessagePump_Dapper
         }
         */
         #endregion
+
+        #region 系统启动检查mysql数据表是否存在，不存在创建当日的数据表
+        public void CheckMysqlDataBase()
+        {
+            using (IDbConnection conn = new MySqlConnection(MySqlConnectionString))
+            {
+                //直接插入，数据库有约束，如果设备不存在，则不能加入
+                string tableName = $"devhis_{DateTime.Now.ToString("yyyyMMdd")}";
+                string sql = $"show tables like '{tableName}'";
+                int count = conn.Query(sql).Count();
+                if (count>0)
+                {
+                    return;
+                }
+                else
+                {
+                    string createSql = $"create table if not exists {tableName} " +
+                        $"(`id` int auto_increment,`DeviceSn` varchar(100),`Dt` datetime,`DataContent` TEXT,`DataTitle` varchar(100)," +
+                        $"`token` VARCHAR(100),PRIMARY KEY(`id`),INDEX SingleIdx(devicesn)) ENGINE = INNODB DEFAULT CHARSET = utf8; ";
+                    try
+                    {
+                        conn.Execute(createSql);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Error("创建表失败:" + ex.Message);
+                    }
+                }
+            }
+        }
+        #endregion
         private DeviceInfo GetDeviceInfo(string DeviceNo)
         {
             //DeviceInfo device = new DeviceInfo();
@@ -325,8 +358,10 @@ namespace MessagePump_Dapper
         private void AddHisData(string content, string token, string title, string devicesn, string DeviceNo)
         {
 #if Debug
+                      return;
+#else
             #region mysql添加数据
-            using(IDbConnection conn = new MySqlConnection(MySqlConnectionString))
+            using (IDbConnection conn = new MySqlConnection(MySqlConnectionString))
             {
                 //直接插入，数据库有约束，如果设备不存在，则不能加入
                 string tableName = $"devhis_{DateTime.Now.ToString("yyyyMMdd")}";
@@ -344,25 +379,24 @@ namespace MessagePump_Dapper
                 }
             }
             #endregion
-            return;
-#else
-
-            using (IDbConnection conn = new SqlConnection(ConnectionString))
-            {
-                //直接插入，数据库有约束，如果设备不存在，则不能加入
-                try
-                {
-                    string strSql = "insert into devicehisdata (dt,datacontent,datatitle,token,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn)";
-                    var query = conn.Execute(strSql, new { dt = DateTime.Now, datacontent = content, datatitle = title, token = token, devicesn = devicesn });
-                    iSend++;
-                    SetStatusTool();
-                }
-                catch (Exception ex)
-                {
-                    //写日志
-                    AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},token:{token}");
-                }
-            }
+            #region 添加sql server数据库
+            /* using (IDbConnection conn = new SqlConnection(ConnectionString))
+             {
+                 //直接插入，数据库有约束，如果设备不存在，则不能加入
+                 try
+                 {
+                     string strSql = "insert into devicehisdata (dt,datacontent,datatitle,token,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn)";
+                     var query = conn.Execute(strSql, new { dt = DateTime.Now, datacontent = content, datatitle = title, token = token, devicesn = devicesn });
+                     iSend++;
+                     SetStatusTool();
+                 }
+                 catch (Exception ex)
+                 {
+                     //写日志
+                     AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},token:{token}");
+                 }
+             }*/
+            #endregion
 #endif
         }
         private void AddWarnData(string message, string deviceno, string token, string devicesn)
@@ -494,7 +528,7 @@ namespace MessagePump_Dapper
                     case "DevicePub"://处理设备上报数据
                     case "devicepub"://处理设备上报数据
                         Dictionary<string, object> dic = AnalyData(message);
-#region 处理设备上报数据
+                        #region 处理设备上报数据
                         if (!dic.ContainsKey("action"))   //数据包格式不正确
                         {
                             return;
@@ -577,7 +611,7 @@ namespace MessagePump_Dapper
                             }
                             //处理设备上线
                             HandleDeviceOnlineData(deviceNo, true, dicOnLine[deviceNo].Token, dicOnLine[deviceNo].DeviceSn, message, topic);
-#region 旧的处理方式
+                            #region 旧的处理方式
                             /*
                             if (DicNo.ContainsKey(deviceNo))//设备缓存列表中是否存在该设备
                             {
@@ -644,7 +678,7 @@ namespace MessagePump_Dapper
 #endregion
                             }
                             */
-#endregion
+                            #endregion
                             //iSend++;
                             AddHisData(message, dicOnLine[deviceNo].Token, topic, dicOnLine[deviceNo].DeviceSn, deviceNo);
                             //SetStatusTool();
@@ -666,8 +700,8 @@ namespace MessagePump_Dapper
                             return;//其它数据不处理
                         }
                         break;
-#endregion
-#region 报警主题暂时开通
+                    #endregion
+                    #region 报警主题暂时开通
                     /*
                 case "DeviceAlarm"://处理报警数据
                     if (dic.ContainsKey("action") && dic["action"].ToString().ToLower() == "devicealarm")
@@ -687,7 +721,7 @@ namespace MessagePump_Dapper
                     }
                     break;
                     */
-#endregion
+                    #endregion
                     case "offline"://设备离线
                         if (dicOnLine.ContainsKey(deviceNo))
                         {
@@ -842,7 +876,7 @@ namespace MessagePump_Dapper
 
         private void FrmMain_FormClosed(object sender, FormClosedEventArgs e)
         {
-#region 结束线程
+            #region 结束线程
             if (thCache.IsAlive)
             {
                 thCache.Abort();
@@ -851,7 +885,7 @@ namespace MessagePump_Dapper
             {
                 thOnLine.Abort();
             }
-#endregion
+            #endregion
             if (mqtt != null && mqtt.IsConnected)
             {
                 mqtt.Disconnect();
@@ -860,12 +894,12 @@ namespace MessagePump_Dapper
 
         }
 
-#region 分离历史数据
-        
-#endregion
+        #region 分离历史数据
+
+        #endregion
     }
 
-#region 处理分包数据包所用数据
+    #region 处理分包数据包所用数据
     public class CacheData
     {
         //public string Key { get; set; }//deviceno+seq
@@ -896,8 +930,8 @@ namespace MessagePump_Dapper
             return $"当前包为{Num}:{Message};";
         }
     }
-#endregion
-#region 设备在线数据
+    #endregion
+    #region 设备在线数据
     public class OnlineData
     {
         public DateTime Dt { get; set; }//记录设备上次在线时间
@@ -919,5 +953,5 @@ namespace MessagePump_Dapper
         public string DeviceSn { get; set; }//设备编号
         public string Token { get; set; }//组织编号
     }
-#endregion
+    #endregion
 }

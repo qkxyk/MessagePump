@@ -7,7 +7,7 @@
     <ProjectGuid>{1851B5EC-C722-41F3-AD8B-B96E0B13BDB0}</ProjectGuid>
     <OutputType>WinExe</OutputType>
     <RootNamespace>MessagePump_Dapper</RootNamespace>
-    <AssemblyName>数据监控软件</AssemblyName>
+    <AssemblyName>Mysql数据监控软件</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
