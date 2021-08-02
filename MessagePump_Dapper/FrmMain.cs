@@ -1,4 +1,4 @@
-﻿//#define Debug
+﻿#define Debug
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -314,36 +314,38 @@ namespace MessagePump_Dapper
         }
         private void AddWarnData(string message, string deviceno, string token, string devicesn, string topic)
         {
-#if Debug
-            return;
-#else
+            //#if Debug
+            //            return;
+            //#else
             using (IDbConnection conn = new SqlConnection(ConnectionString))
             {
-                try
+                Dictionary<string, object> dic = AnalyData(message, topic);
+                foreach (var item in dic)
                 {
-                    Dictionary<string, object> dic = AnalyData(message, topic);
-                    foreach (var item in dic)
+                    try
                     {
                         //先检查是否存在相同未处理的报警
                         string sql = "select count(1) from warn where code=@code and deviceno=@deviceno and state=0";
                         var query = conn.Query<int>(sql, new { code = item.Key, deviceno = deviceno }).FirstOrDefault();
                         if (query > 0)
                         {
-                            return;//存在未处理的报警
+                            //return;//存在未处理的报警
+                            continue;
                         }
                         sql = "insert into warn (code,dt,devicesn,deviceno,state) values(@code,@dt,@devicesn,@deviceno,@state)";
                         var r = conn.Execute(sql, new { code = item.Key, dt = DateTime.Now, devicesn = devicesn, deviceno = deviceno, state = 0 });
                         iSendAlarm++;
                         SetStatusTool();
                     }
+                    catch (Exception ex)
+                    {
+                        //写日志
+                        AppLog.Error($"添加报警失败，错误原因,不存在的code编码为->{item.Key}  :" + ex.Message + "错误数据：" + deviceno + "->" + message);
+                    }
                 }
-                catch (Exception ex)
-                {
-                    //写日志
-                    AppLog.Error("添加报警失败，错误原因->" + ex.Message + "错误数据：" + deviceno + "->" + message);
-                }
+
             }
-#endif
+            //#endif
         }
         private void InitMqtt()
         {
