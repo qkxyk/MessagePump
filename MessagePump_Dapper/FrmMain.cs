@@ -1,4 +1,4 @@
-﻿#define Debug
+﻿//#define Debug
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -11,6 +11,7 @@ using System.Threading;
 using System.Windows.Forms;
 using Dapper;
 using log4net;
+using MySql.Data.MySqlClient;
 using Newtonsoft.Json;
 using uPLibrary.Networking.M2Mqtt;
 using uPLibrary.Networking.M2Mqtt.Messages;
@@ -27,14 +28,12 @@ namespace MessagePump_Dapper
 {
     public partial class FrmMain : Form
     {
-        //ILog log;
-        //private Dictionary<string, DateTime> DicNo;//缓存上条数据时间，用来控制设备上传数据的时间
-        //Dictionary<string, DeviceViewModel> DicDevice;//缓存设备，系统加载时读取，新设备加入时自动添加
         MqttClient mqtt;
         string uid;//mqtt标识
         int iReceive, iSend, iAlarm, iSendAlarm, iOther;//接收到的数据条数，已发送的历史数据，接收到的报警数据，已上传城的的报警数据，其它数据
         volatile int iInterval = 5;
         private string ConnectionString { get; }
+        private string MySqlConnectionString { get; }//mysql数据库连接字符串
         volatile bool bConnectServer = false;
 
         FrmMessage fm;
@@ -131,6 +130,7 @@ namespace MessagePump_Dapper
 #if Debug
             return;
 #else
+
             using (IDbConnection conn = new SqlConnection(ConnectionString))
             {
                 //直接插入，数据库有约束，如果设备不存在，则不能加入
@@ -156,7 +156,7 @@ namespace MessagePump_Dapper
                     {
                         if (isOnline)//设备上线时添加数据，下线则不处理
                         {
-                            updateOrInsert = "insert into deviceonline (devicesn,deviceno,dt,groupid,State,DataContent,DataTitle) values(@devicesn,@deviceno,@dt,@token,@State,@dataContent,@title)";
+                            updateOrInsert = "insert into deviceonline (devicesn,deviceno,dt,token,State,DataContent,DataTitle) values(@devicesn,@deviceno,@dt,@token,@State,@dataContent,@title)";
                             var m = conn.Execute(updateOrInsert, new { devicesn = devicesn, deviceno = DeviceNo, dt = DateTime.Now, token = token, State = isOnline, dataContent = dataContent, title = title });
                         }
                     }
@@ -176,20 +176,18 @@ namespace MessagePump_Dapper
             InitializeComponent();
             AppLog = LogManager.GetLogger("FrmMain");
             ConnectionString = ConfigurationManager.ConnectionStrings["SqlConString"].ConnectionString;
+            MySqlConnectionString = ConfigurationManager.ConnectionStrings["mysqldb"].ConnectionString;
             dicPage = new ConcurrentDictionary<string, CacheData>();//初始化分包数据
             dicOnLine = new ConcurrentDictionary<string, OnlineData>();//初始化在线设备数据
         }
 
         private void FrmMain_Load(object sender, EventArgs e)
         {
-            //#if Debug
-            //  txtAddress.Text = "183.62.237.211:18831";
             tsOnline.Text = "没有在线设备";
-            //#endif
             uid = Guid.NewGuid().ToString("N");
             InitListView();
             //测试地址
-            // txtAddress.Text = "183.62.237.211:18831";
+            //txtAddress.Text = "183.62.237.211:18831";
             ActConnetct = MonitorConnect;
 
             #region 清理多包缓存
@@ -244,14 +242,16 @@ namespace MessagePump_Dapper
                             foreach (var item in dicOnLine.Where(a => a.Value.IsWill == false))//只处理没有遗言的设备
                             {
                                 TimeSpan ts = DateTime.Now - item.Value.Dt;
-                                if (ts.TotalMinutes > 25)//如果25分钟没有设备上传数据，则判定改设备下线
+                                if (ts.TotalMinutes > 10)//如果10分钟没有设备上传数据，则判定改设备下线
                                 {
                                     OnlineData data;
                                     dicOnLine.TryRemove(item.Key, out data);
                                     //更改设备在线状态
                                     HandleDeviceOnlineData(item.Key, false, data.Token, data.DeviceSn);
+
+                                    //从设备缓存中剔除出已掉线的设备(目的是更新设备缓存列表，处理设备no和sn不一致的问题)
+                                    //DicDevice.Remove(item.Key);
                                     SetOnlineData();
-                                    AppLog.Info($"设备{item.Key}被强制下线，遗言状态为:{item.Value.IsWill},设备数据为{item.Value.DeviceNo}");
                                 }
                             }
                         }
@@ -261,21 +261,95 @@ namespace MessagePump_Dapper
             });
             thOnLine.Start();
             #endregion
+            //启动检查mysql数据表是否存在
+            CheckMysqlDataBase();
 
         }
+        #region 旧版本删除
+        /*
+        //程序启动时把所有设备都加入到设备缓存中
+        private void GetDevice()
+        {
+            using (IDbConnection connection = new SqlConnection(ConnectionString))
+            {
+                string sql = "select deviceno,devicesn,token from device";
+                var query = connection.Query<DeviceViewModel>(sql);
+                foreach (var item in query)
+                {
+                    DicDevice.Add(item.DeviceNo, item);
+                }
+            }
+        }
+        //如果设备不在列表中把设备加入设备缓存中
+        private bool GetDeviceNo(string DeviceNo)
+        {
+            using (var conn = new SqlConnection(ConnectionString))
+            {
+                string strSql = "select deviceno,devicesn,token from device where deviceno=@deviceno";
+                var query = conn.Query<DeviceViewModel>(strSql, new { deviceno = DeviceNo }).FirstOrDefault();
+                if (query == null)
+                {
+                    return false;
+                }
+                else
+                {
+                    if (!DicDevice.ContainsKey(query.DeviceNo))
+                    {
+                        DicDevice.Add(query.DeviceNo, query);//把设备添加到列表中
+                    }
+                    return true;
+                }
+            }
+        }
+        */
+        #endregion
+
+
+
+        #region 系统启动检查mysql数据表是否存在，不存在创建当日的数据表
+        public void CheckMysqlDataBase()
+        {
+            using (IDbConnection conn = new MySqlConnection(MySqlConnectionString))
+            {
+                //直接插入，数据库有约束，如果设备不存在，则不能加入
+                string tableName = $"devhis_{DateTime.Now.ToString("yyyyMMdd")}";
+                string sql = $"show tables like '{tableName}'";
+                int count = conn.Query(sql).Count();
+                if (count > 0)
+                {
+                    return;
+                }
+                else
+                {
+                    string createSql = $"create table if not exists {tableName} " +
+                        $"(`id` int auto_increment,`DeviceSn` varchar(100),`Dt` datetime,`DataContent` TEXT,`DataTitle` varchar(100)," +
+                        $"`groupId` VARCHAR(100),PRIMARY KEY(`id`),INDEX SingleIdx(devicesn)) ENGINE = INNODB DEFAULT CHARSET = utf8; ";
+                    try
+                    {
+                        conn.Execute(createSql);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Error("创建表失败:" + ex.Message);
+                    }
+                }
+            }
+        }
+        #endregion
+
         private DeviceInfo GetDeviceInfo(string DeviceNo)
         {
             //DeviceInfo device = new DeviceInfo();
             using (var conn = new SqlConnection(ConnectionString))
             {
                 //老版本
-                //string strSql = "select devicesn,token from device where deviceno=@deviceno";
+                string strSql = "select devicesn,token from device where deviceno=@deviceno";
                 //新版本 
-                string strSql = "select devicesn,groupid from device where deviceno=@deviceno";
+                //string strSql = "select devicesn,groupid from device where deviceno=@deviceno";
                 var query = conn.Query<DeviceInfo>(strSql, new { deviceno = DeviceNo }).FirstOrDefault();
                 if (query == null)
                 {
-                    //  AppLog.Error($"设备为{DeviceNo}的设备不存在");
+                    AppLog.Error($"设备为{DeviceNo}的设备不存在");
                     query = new DeviceInfo { IsExist = false };
                 }
                 else
@@ -288,17 +362,16 @@ namespace MessagePump_Dapper
         private void AddHisData(string content, string token, string title, string devicesn, string DeviceNo)
         {
 #if Debug
-            //AppLog.Info($"收到设备序列号为:{devicesn}->{DeviceNo}的设备数据{content}");
-            return;
+                      return;
 #else
-
-            //AppLog.Info($"收到设备序列号为:{devicesn}->{DeviceNo}的设备数据{content}");
-            using (IDbConnection conn = new SqlConnection(ConnectionString))
+            #region mysql添加数据
+            using (IDbConnection conn = new MySqlConnection(MySqlConnectionString))
             {
                 //直接插入，数据库有约束，如果设备不存在，则不能加入
+                string tableName = $"devhis_{DateTime.Now.ToString("yyyyMMdd")}";
                 try
                 {
-                    string strSql = "insert into devicehisdata (dt,datacontent,datatitle,groupid,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn)";
+                    string strSql = $"insert into {tableName} (dt,datacontent,datatitle,groupId,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn);";
                     var query = conn.Execute(strSql, new { dt = DateTime.Now, datacontent = content, datatitle = title, token = token, devicesn = devicesn });
                     iSend++;
                     SetStatusTool();
@@ -306,46 +379,84 @@ namespace MessagePump_Dapper
                 catch (Exception ex)
                 {
                     //写日志
-                    //AppLog.Error("添加历史数据失败，错误原因->" + ex.Message);
-                    AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},groupid:{token}");
+                    AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},token:{token}");
                 }
             }
+            #endregion
+            #region sqlserver
+            //AppLog.Info($"收到设备序列号为:{devicesn}->{DeviceNo}的设备数据{content}");
+            /*   using (IDbConnection conn = new SqlConnection(ConnectionString))
+               {
+                   //直接插入，数据库有约束，如果设备不存在，则不能加入
+                   string tableName = $"devhis_{DateTime.Now.ToString("yyyyMMdd")}";
+                   try
+                   {
+                       string strSql = $"insert into {tableName} (dt,datacontent,datatitle,token,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn);";
+                       var query = conn.Execute(strSql, new { dt = DateTime.Now, datacontent = content, datatitle = title, token = token, devicesn = devicesn });
+                       iSend++;
+                       SetStatusTool();
+                   }
+                   catch (Exception ex)
+                   {
+                       //写日志
+                       AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},token:{token}");
+                   }
+   <<<<<<< Updated upstream
+               }
+               #endregion
+               #region 添加sql server数据库
+               /* using (IDbConnection conn = new SqlConnection(ConnectionString))
+                {
+                    //直接插入，数据库有约束，如果设备不存在，则不能加入
+                    try
+                    {
+                        string strSql = "insert into devicehisdata (dt,datacontent,datatitle,token,devicesn) values(@dt,@datacontent,@datatitle,@token,@devicesn)";
+                        var query = conn.Execute(strSql, new { dt = DateTime.Now, datacontent = content, datatitle = title, token = token, devicesn = devicesn });
+                        iSend++;
+                        SetStatusTool();
+                    }
+                    catch (Exception ex)
+                    {
+                        //写日志
+                        AppLog.Error($"添加历史数据失败，错误原因->{ex.Message};错误数据为：设备序列号：{devicesn},设备编号:{DeviceNo},主题:{title},内容:{content},token:{token}");
+                    }
+                }*/
+            #endregion
 #endif
         }
-        private void AddWarnData(string message, string deviceno, string token, string devicesn, string topic)
+        private void AddWarnData(string message, string deviceno, string token, string devicesn)
         {
-            //#if Debug
-            //            return;
-            //#else
+#if Debug
+            return;
+#else
             using (IDbConnection conn = new SqlConnection(ConnectionString))
             {
-                Dictionary<string, object> dic = AnalyData(message, topic);
-                foreach (var item in dic)
+                try
                 {
-                    try
+                    Dictionary<string, object> dic = AnalyData(message);
+                    foreach (var item in dic)
                     {
                         //先检查是否存在相同未处理的报警
                         string sql = "select count(1) from warn where code=@code and deviceno=@deviceno and state=0";
                         var query = conn.Query<int>(sql, new { code = item.Key, deviceno = deviceno }).FirstOrDefault();
                         if (query > 0)
                         {
-                            //return;//存在未处理的报警
-                            continue;
+                            return;//存在未处理的报警
                         }
-                        sql = "insert into warn (code,dt,devicesn,deviceno,state) values(@code,@dt,@devicesn,@deviceno,@state)";
-                        var r = conn.Execute(sql, new { code = item.Key, dt = DateTime.Now, devicesn = devicesn, deviceno = deviceno, state = 0 });
+
+                        sql = "insert into warn (code,token,dt,devicesn,deviceno,state) values(@code,@token,@dt,@devicesn,@deviceno,@state)";
+                        var r = conn.Execute(sql, new { code = item.Key, token = token, dt = DateTime.Now, devicesn = devicesn, deviceno = deviceno, state = 0 });
                         iSendAlarm++;
                         SetStatusTool();
                     }
-                    catch (Exception ex)
-                    {
-                        //写日志
-                        AppLog.Error($"添加报警失败，错误原因,不存在的code编码为->{item.Key}  :" + ex.Message + "错误数据：" + deviceno + "->" + message);
-                    }
                 }
-
+                catch (Exception ex)
+                {
+                    //写日志
+                    AppLog.Error("添加报警失败，错误原因->" + ex.Message + "错误数据：" + deviceno + "->" + message);
+                }
             }
-            //#endif
+#endif
         }
         private void InitMqtt()
         {
@@ -436,15 +547,12 @@ namespace MessagePump_Dapper
             try
             {
                 string deviceNo = topics[1];
+
                 switch (topics[2].ToLower())
                 {
-                    //case "DevicePub"://处理设备上报数据
+                    case "DevicePub"://处理设备上报数据
                     case "devicepub"://处理设备上报数据
-                        Dictionary<string, object> dic = AnalyData(message, topic);
-                        if (dic == null)//数据解析出错
-                        {
-                            return;
-                        }
+                        Dictionary<string, object> dic = AnalyData(message);
                         #region 处理设备上报数据
                         if (!dic.ContainsKey("action"))   //数据包格式不正确
                         {
@@ -455,14 +563,14 @@ namespace MessagePump_Dapper
                         if (dic["action"].ToString().ToLower() == "timing_upload")//设备正常上报数据
                         {
                             //判断设备上传的数据是否有遗言
-                            int will = 0;// = dic.ContainsKey("will") == false ? 0 : int.Parse(dic["will"].ToString());//设备上传的数据是否有遗言
+                            int will = dic.ContainsKey("will") == false ? 0 : int.Parse(dic["will"].ToString());//设备上传的数据是否有遗言
                             //判断是否有分包数据
                             int totalpage = dic.ContainsKey("totalpage") == false ? 0 : int.Parse(dic["totalpage"].ToString());//包的序列号，防止不同的包混到一起
                             if (totalpage > 0)
                             {
                                 int seq = dic.ContainsKey("seq") == false ? 0 : int.Parse(dic["seq"].ToString());//包的序列号，防止不同的包混到一起
                                 string key = deviceNo + seq.ToString();//存到缓存的标示
-                                bool isComplete = HandleMessage(dic);//合并包
+                                bool isComplete = HandleMessage(dic);
                                 if (isComplete)
                                 {
                                     CacheData cd;
@@ -506,7 +614,7 @@ namespace MessagePump_Dapper
                                 if (!device.IsExist)
                                 {
                                     //设备不存在，把设备的数据打印到info中
-                                    //AppLog.Info($"设备为{deviceNo}的设备不存在,本次收到的数据为{message}");
+                                    //  AppLog.Info($"设备为{deviceNo}的设备不存在,本次收到的数据为{message}");
                                     return;
                                 }
                                 else
@@ -518,21 +626,21 @@ namespace MessagePump_Dapper
                                         IsWill = will == 0 ? false : true,
                                         DeviceSn = device.DeviceSn,
                                         DeviceNo = deviceNo,
-                                        Token = device.GroupId,
+                                        Token = device.Token,
                                         SendTime = DateTime.Now //设备在缓存中不存在需要设置发送时间
                                     });
                                 }
                                 //发送设备上线数据
                                 SetOnlineData();
-                                //处理设备上线
-                                HandleDeviceOnlineData(deviceNo, true, device.GroupId, device.DeviceSn, message, topic);
                                 SetStatusTool();
                             }
+                            //处理设备上线
+                            HandleDeviceOnlineData(deviceNo, true, dicOnLine[deviceNo].Token, dicOnLine[deviceNo].DeviceSn, message, topic);
                             #region 旧的处理方式
                             /*
                             if (DicNo.ContainsKey(deviceNo))//设备缓存列表中是否存在该设备
                             {
-                                #region 设备上线功能
+#region 设备上线功能
                                 if (dicOnLine.ContainsKey(deviceNo))//缓存中有该设备
                                 {
                                     lock (OnlineLocker)
@@ -549,7 +657,7 @@ namespace MessagePump_Dapper
                                 }
                                 //处理设备上线
                                 HandleDeviceOnlineData(deviceNo, true, DicDevice[deviceNo].Token, DicDevice[deviceNo].DeviceSn, message, topic);
-                                #endregion
+#endregion
                                 if (DicNo[deviceNo].AddMinutes(iInterval) < DateTime.Now)//如果设备上传的数据间隔小于10，该数据不处理
                                 {
                                     DicNo[deviceNo] = DateTime.Now;//更新时间
@@ -575,7 +683,7 @@ namespace MessagePump_Dapper
                                     }
                                 }
                                 DicNo[deviceNo] = DateTime.Now;
-                                #region 设备上线功能
+#region 设备上线功能
                                 if (dicOnLine.ContainsKey(deviceNo))//缓存中有该设备
                                 {
                                     lock (OnlineLocker)
@@ -592,7 +700,7 @@ namespace MessagePump_Dapper
                                 }
                                 //处理设备上线
                                 HandleDeviceOnlineData(deviceNo, true, DicDevice[deviceNo].Token, DicDevice[deviceNo].DeviceSn, message, topic);
-                                #endregion
+#endregion
                             }
                             */
                             #endregion
@@ -609,7 +717,7 @@ namespace MessagePump_Dapper
                             iAlarm++;
                             SetStatusTool();
                             string Mess = dic["error"].ToString();
-                            AddWarnData(Mess, deviceNo, dicOnLine[deviceNo].Token, dicOnLine[deviceNo].DeviceSn, topic);
+                            AddWarnData(Mess, deviceNo, dicOnLine[deviceNo].Token, dicOnLine[deviceNo].DeviceSn);
                         }
                         else
                         {
@@ -649,23 +757,9 @@ namespace MessagePump_Dapper
                                 dicOnLine.TryRemove(deviceNo, out data);
                                 HandleDeviceOnlineData(deviceNo, false, data.Token, data.DeviceSn);
                                 SetOnlineData();
-                                AppLog.Info($"设备{deviceNo}收到离线消息:{message}离线");
                             }
                         }
                         break;
-                    case "online":
-                        if (!dicOnLine.ContainsKey(deviceNo))
-                        {
-                            lock (OnlineLocker)
-                            {
-                                //设备上线
-                                //HandleDeviceOnlineData(deviceNo, false, data.Token, data.DeviceSn);
-                                //SetOnlineData();
-                                HandleDeviceOnlineMessage(deviceNo, 0, message, topic);
-                            }
-                        }
-                        break;
-
                     default://其它数据不处理
                         break;
                 }
@@ -691,47 +785,10 @@ namespace MessagePump_Dapper
             }
             catch (Exception ex)
             {
-                //AppLog.Error("数据解析错误:->" + ex.Message + "错误主题为:" + topic);
                 AppLog.Error($"数据解析错误:->{ ex.Message}: 错误主题为:{topic}:错误消息为=>{message}");
             }
 
         }
-        /// <summary>
-        /// 处理设备上线
-        /// </summary>
-        /// <param name="deviceNo">设备编号</param>
-        /// <param name="will">是否有遗言，1代表有遗言，0代表没有遗言</param>
-        /// <param name="message">设备发送的消息</param>
-        /// <param name="topic">主题</param>
-        public void HandleDeviceOnlineMessage(string deviceNo, int will, string message, string topic)
-        {
-            var device = GetDeviceInfo(deviceNo);
-            if (!device.IsExist)
-            {
-                //设备不存在，把设备的数据打印到info中
-                //AppLog.Info($"设备为{deviceNo}的设备不存在,本次收到的数据为{message}");
-                return;
-            }
-            else
-            {
-
-                dicOnLine.TryAdd(deviceNo, new OnlineData
-                {
-                    Dt = DateTime.Now,
-                    IsWill = will == 0 ? false : true,
-                    DeviceSn = device.DeviceSn,
-                    DeviceNo = deviceNo,
-                    Token = device.GroupId,
-                    SendTime = DateTime.Now //设备在缓存中不存在需要设置发送时间
-                });
-            }
-            //发送设备上线数据
-            SetOnlineData();
-            //处理设备上线
-            HandleDeviceOnlineData(deviceNo, true, device.GroupId, device.DeviceSn, message, topic);
-            SetStatusTool();
-        }
-
 
         private void SetOnlineData()
         {
@@ -815,7 +872,7 @@ namespace MessagePump_Dapper
             lvMessage.Items.Clear();
         }
 
-        public Dictionary<string, object> AnalyData(string strMessage, string topic)
+        public Dictionary<string, object> AnalyData(string strMessage)
         {
             try
             {
@@ -824,9 +881,8 @@ namespace MessagePump_Dapper
             }
             catch (Exception ex)
             {
-                //AppLog.Error($"数据解析错误:->" + ex.Message + "错误数据为:" + strMessage);
-                AppLog.Error($"数据解析错误：主题为{topic},错误数据为{strMessage},错误原因:{ex.Message}");
-                return null;
+                //AppLog.Error("数据解析错误:->" + ex.Message + "错误数据为:" + strMessage);
+                throw new Exception(ex.Message + strMessage);
             }
         }
 
@@ -862,7 +918,12 @@ namespace MessagePump_Dapper
             }
 
         }
+
+        #region 分离历史数据
+
+        #endregion
     }
+
     #region 处理分包数据包所用数据
     public class CacheData
     {
@@ -891,7 +952,7 @@ namespace MessagePump_Dapper
         public string Message { get; set; }
         public override string ToString()
         {
-            return $"当前包号为{Num}:{Message};";
+            return $"当前包为{Num}:{Message};";
         }
     }
     #endregion
@@ -915,7 +976,7 @@ namespace MessagePump_Dapper
     {
         public bool IsExist { get; set; }//设备是否存在
         public string DeviceSn { get; set; }//设备编号
-        public string GroupId { get; set; }//组织编号
+        public string Token { get; set; }//组织编号
     }
     #endregion
 }
