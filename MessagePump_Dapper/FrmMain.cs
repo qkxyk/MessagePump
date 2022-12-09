@@ -242,7 +242,7 @@ namespace MessagePump_Dapper
                             foreach (var item in dicOnLine.Where(a => a.Value.IsWill == false))//只处理没有遗言的设备
                             {
                                 TimeSpan ts = DateTime.Now - item.Value.Dt;
-                                if (ts.TotalMinutes > 10)//如果10分钟没有设备上传数据，则判定改设备下线
+                                if (ts.TotalMinutes > 30)//如果30分钟没有设备上传数据，则判定改设备下线
                                 {
                                     OnlineData data;
                                     dicOnLine.TryRemove(item.Key, out data);
